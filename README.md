@@ -7,6 +7,6 @@ This is a C++ Memory Monitor. It functions by overloading the new and delete ope
 This will run in any and all C++ projects but only manages memory that is allocated to the heap. 
 
 To use simply add the header file to your project then include it ONLY IN CPP FILES it will cause errors if you include it in a header file. 
-Also the array portion of this is a little tricky but esentially if you are at any point using a array new and delete call then you need to put in the monitor or it may cause crashing.
+Also the array portion of this is a little tricky but essentially  if you are at any point using a array new and delete call then you need to put in the monitor or it may cause crashing.
 
 If you dont want to run into array issues simply comment out the array portion and enjoy this monitor through the simple non array new and delete format
