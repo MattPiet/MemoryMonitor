@@ -2,135 +2,103 @@
 #define MEMORYMONITOR_H
 
 #include <iostream>
-#include <memory>
-
 #include <vector>
 #include <string>
+#include <algorithm>
+#include <iomanip>
 
-inline std::vector<void*> memoryStack;
-inline std::vector<std::pair<std::string, void*>> printStorage;
-inline unsigned int memoryStackCounter = 0;
-inline int amountOfMemoryAllocated = 0;
 
-inline std::vector<void*> memoryStackARR;
-inline unsigned int memoryStackCounterARR = 0;
-inline std::vector<std::pair<std::string, void*>> printStorageARR;
-inline int amountOfMemoryAllocatedARR = 0;
+struct MemoryTag {
+    const char* file;
+    int line;
+    std::size_t size;
+    bool isArray;
+};
 
-inline void* operator new(std::size_t numBytes, const char* FILE, const int LINE) {
-  
-    void* ptr = std::malloc(numBytes);
-    memoryStack.push_back(ptr);
-    amountOfMemoryAllocated += numBytes;
-    std::string msg = std::string(FILE) + " : " + std::to_string(LINE) +
-        " : Allocated " + std::to_string(numBytes) + " bytes of memory"  + "\n";
-    printStorage.push_back(std::make_pair(msg, ptr));
+
+inline std::vector<std::pair<void*, MemoryTag>> memoryTracker;
+inline std::size_t currentUsage = 0;
+
+
+inline void PrintMemoryAction(void* ptr, std::size_t size, const MemoryTag& tag, const char* action) {
+    std::cout << "========================================\n"
+        << "[MEMORY " << action << "]\n"
+        << "File: " << tag.file << " (Line: " << tag.line << ")\n"
+        << "Addr: " << ptr << " | Size: " << size << " bytes " << (tag.isArray ? "[ARRAY]" : "[OBJECT]") << "\n"
+        << "Total Before: " << currentUsage << " bytes\n";
+
+    if (std::string(action) == "DELETED") {
+        currentUsage -= size;
+    }
+    else {
+        currentUsage += size;
+    }
+
+    std::cout << "Total After:  " << currentUsage << " bytes\n"
+        << "========================================\n\n";
+}
+
+
+inline void* operator new(std::size_t size, const char* file, int line) {
+    void* ptr = std::malloc(size);
+    if (ptr) {
+        MemoryTag tag = { file, line, size, false };
+        memoryTracker.push_back({ ptr, tag });
+        PrintMemoryAction(ptr, size, tag, "ALLOCATED");
+    }
     return ptr;
 }
 
-inline void operator delete(void* memoryLocation, std::size_t numBytes) {
-    auto it = std::find(memoryStack.begin(), memoryStack.end(), memoryLocation);
-    if (it != memoryStack.end()) {
-        auto msgIt = std::find_if(printStorage.begin(), printStorage.end(),
-            [memoryLocation](const std::pair<std::string, void*>& pair) {
-                return pair.second == memoryLocation;
-            });
-
-        if (msgIt != printStorage.end()) {
-            std::cout << msgIt->first;
-            printStorage.erase(msgIt);
-            
-        }
-        
-        std::cout << "Previous amount of memory allocated before delete : " << amountOfMemoryAllocated;
-        std::cout << "\n: deleted memory location: " << memoryLocation;
-        if (amountOfMemoryAllocated >= numBytes) {
-            amountOfMemoryAllocated -= numBytes;
-        }
-        else {
-             Log an error or warning here — something's wrong
-            std::cerr << "Warning: Attempt to delete more memory than allocated!" << std::endl;
-            amountOfMemoryAllocated = 0; 
-        }
-
-        std::cout << " : amount of memory deleted: " << numBytes;
-        std::cout << " : Current amount of memory allocated : " << amountOfMemoryAllocated << std::endl << std::endl;
-
-        memoryStack.erase(it);
-        
+inline void* operator new[](std::size_t size, const char* file, int line) {
+    void* ptr = std::malloc(size);
+    if (ptr) {
+        MemoryTag tag = { file, line, size, true };
+        memoryTracker.push_back({ ptr, tag });
+        PrintMemoryAction(ptr, size, tag, "ALLOCATED");
     }
-    std::free(memoryLocation);
+    return ptr;
 }
 
- //This is a trick to get access to numBytes 
- //w/o wild typecasts. 
-struct ArraySize {
-    std::size_t numBytes;
-};
+inline void operator delete(void* ptr, std::size_t size) noexcept {
+    if (!ptr) return;
+    auto it = std::find_if(memoryTracker.begin(), memoryTracker.end(),
+        [ptr](const auto& pair) { return pair.first == ptr; });
 
- ///I did a little hack to hide the total number of bytes
-/// allocated in the array itself. 
-inline void* operator new[](std::size_t numBytes, const char* FILE, const int LINE) {
-  
-
-    ArraySize* array = reinterpret_cast<ArraySize*>(std::malloc(numBytes + sizeof(ArraySize)));
-    if (array) array->numBytes = numBytes;
-    void* ptr = array + 1;
-    memoryStackARR.push_back(ptr);
-    amountOfMemoryAllocatedARR += numBytes;
-
-    std::string msg = std::string(FILE) + " : " + std::to_string(LINE) +
-        " : Allocated ARRAY " + std::to_string(numBytes) + " bytes of memory ARRAY" + "\n";
-    printStorageARR.push_back(std::make_pair(msg, ptr));
-    return array + 1;
-
-
+    if (it != memoryTracker.end()) {
+        PrintMemoryAction(ptr, size, it->second, "DELETED");
+        memoryTracker.erase(it);
+    }
+    std::free(ptr);
 }
 
-/// This overload doesn't work as advertised in VS22
-inline void operator delete[](void* memoryLocation) {
-    ArraySize* array = reinterpret_cast<ArraySize*>(memoryLocation) - 1;
+inline void operator delete[](void* ptr) noexcept {
+    if (!ptr) return;
+    auto it = std::find_if(memoryTracker.begin(), memoryTracker.end(),
+        [ptr](const auto& pair) { return pair.first == ptr; });
 
-
-    auto it = std::find(memoryStackARR.begin(), memoryStackARR.end(), memoryLocation);
-    if (it != memoryStackARR.end()) {
-
-        auto it = std::find(memoryStackARR.begin(), memoryStackARR.end(), memoryLocation);
-        if (it != memoryStackARR.end()) {
-            auto msgIt = std::find_if(printStorageARR.begin(), printStorageARR.end(),
-                [memoryLocation](const std::pair<std::string, void*>& pair) {
-                    return pair.second == memoryLocation;
-                });
-
-            if (msgIt != printStorageARR.end()) {
-                std::cout << msgIt->first;
-                printStorageARR.erase(msgIt);
-
-            }
-           //    memoryStackARR.erase(it);
-
-            std::cout << "Previous amount of memory allocated before delete ARRAY : " << amountOfMemoryAllocatedARR;
-            std::cout << "\n: deleted memory location ARRAY: " << memoryLocation;
-            if (amountOfMemoryAllocatedARR >= array->numBytes) {
-                amountOfMemoryAllocatedARR -= array->numBytes;
-            }
-            else {
-                // Log an error or warning here — something's wrong
-                std::cerr << "Warning: Attempt to delete more memory than allocated!" << std::endl;
-                amountOfMemoryAllocatedARR = 0; // Or handle as appropriate
-            }
-            std::cout << " : amount of memory deleted ARRAY : " << array->numBytes;
-            std::cout << " : Current amount of memory allocated ARRAY : " << amountOfMemoryAllocatedARR << std::endl << std::endl;
-
-
-        }
-
+    if (it != memoryTracker.end()) {
+        PrintMemoryAction(ptr, it->second.size, it->second, "DELETED");
+        memoryTracker.erase(it);
     }
-    free(array);
+    std::free(ptr);
+}
+
+inline static void ReportLeaks() {
+    std::cout << "\n--- FINAL MEMORY LEAK REPORT ---\n";
+    if (memoryTracker.empty()) {
+        std::cout << "Status: CLEAN - All memory deallocated.\n";
+    }
+    else {
+        std::cout << "Status: LEAKS DETECTED (" << memoryTracker.size() << " items)\n";
+        for (const auto& [ptr, tag] : memoryTracker) {
+            std::cout << "-> " << (tag.isArray ? "Array " : "Object")
+                << " leaked from " << tag.file << ":" << tag.line
+                << " (" << tag.size << " bytes)\n";
+        }
+    }
+    std::cout << "--------------------------------\n\n";
 }
 
 #define new new(__FILE__, __LINE__)
 
-
 #endif
-
